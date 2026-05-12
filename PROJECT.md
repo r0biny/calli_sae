@@ -138,7 +138,7 @@ The exact CSV schema should be inspected from the existing projects and reused a
 The implementation should follow the data-loading style of these reference codebases:
 
 ```text
-~/Code/calliffusion_project
+~/Code/calligraphy_project
 ~/Code/transfusion
 ```
 
@@ -154,12 +154,24 @@ General preferences:
 
 - Keep the project modular but not over-engineered.
 - Prefer readable PyTorch code over overly abstract frameworks.
-- Use config files for paths, image size, batch size, model size, and training settings.
-- Use existing dataset/loading conventions from `calliffusion_project` and `transfusion` where possible.
+- Use simple config files for paths, image size, batch size, model size, and training settings.
+- Treat config files as editable default parameter bundles, not as a heavy framework. Command-line arguments should still be able to override key fields such as resume checkpoint, output root, epoch count, and batch size.
+- Save the resolved config / args into each run directory for reproducibility.
+- Use existing dataset/loading conventions from `calligraphy_project` and `transfusion` where possible.
 - Save intermediate artifacts clearly: VAE checkpoints, DiT checkpoints, activation caches, SAE checkpoints, pseudo-label files, and PluGeN checkpoints.
 - Favor small baseline runs before scaling.
 - Make every stage runnable independently.
-- The codebase structure may refer project `calliffusion_project`. And the outputing / logging style may refer `calliffusion_project/v2/cnet_gen_train.py`. All the output files will be located in `calli_sae_results`
+- The codebase structure may refer to `calligraphy_project`. The output / logging style may refer to `calligraphy_project/v2/cnet_gen_train.py` and `transfusion/train_calliffusion.py`.
+- All generated results should be placed under `calli_sae_results`. The Python code should stay portable; concrete local/server paths are expected to be supplied by config files or sbatch scripts.
+
+Confirmed v0 implementation decisions:
+
+- Dataset source: reuse the CSV-based calligraphy dataset style from `~/Code/calligraphy_project` and `~/Code/transfusion`.
+- VAE: finetune an existing pretrained `AutoencoderKL`-style VAE on the calligraphy images, rather than training a small convolutional VAE from scratch in v0.
+- DiT: implement both latent-space and pixel-space entry points where practical, but make latent-space DiT the default first experiment.
+- Latent-space DiT dependency: train / finetune the VAE first, then use the finetuned VAE encoder to produce latents for DiT training.
+- Pixel-space DiT fallback: keep this option available if VAE reconstructions are poor or if latent-space activations are too spatially coarse for SAE analysis.
+- Slurm: future training is expected to run through `sbatch`; sbatch files should define server paths, conda environment activation, and output directories.
 
 ---
 
@@ -173,7 +185,7 @@ Build the initial repository structure and reproduce the dataset loading behavio
 
 Tasks:
 
-- Inspect `~/Code/calliffusion_project` and `~/Code/transfusion`.
+- Inspect `~/Code/calligraphy_project` and `~/Code/transfusion`.
 - Identify how they read CSV metadata and local image paths.
 - Reuse or adapt their dataset class style.
 - Create a minimal data loader smoke test.
@@ -211,15 +223,17 @@ Important validation:
 
 Suggested first baseline:
 
-- Start with a simple convolutional VAE or a lightweight autoencoder-VAE variant.
-- Prioritize stable reconstruction and easy debugging.
-- Only after the baseline works, consider more complex VQ-VAE, KL autoencoder, or latent diffusion-style autoencoder designs.
+- Start by finetuning a pretrained `AutoencoderKL`-style VAE, such as the VAE already used by the recent `transfusion` experiments.
+- Prioritize stable reconstruction, character identity preservation, and easy debugging.
+- Use a conservative learning rate and save reconstruction grids frequently.
+- Keep the implementation modular enough that a simple convolutional VAE, VQ-VAE, or other codec can be added later if pretrained VAE finetuning is not suitable.
 
 Expected artifacts:
 
 - VAE checkpoint
 - reconstruction grid
 - encoded latent cache `z` for training images
+- resolved config / args for the run
 
 ---
 
@@ -248,13 +262,18 @@ Possible settings:
 
 Preferred direction:
 
-If the VAE from Stage 1 is stable enough, prefer a latent-space DiT because it connects naturally with diffusion practice and may be more efficient. However, do not let this block the project; a simpler unconditional DiT baseline is acceptable if it is easier to implement using the existing reference projects.
+Use latent-space DiT as the default v0 direction after the finetuned VAE is available. This connects naturally with latent diffusion practice, is cheaper than pixel-space denoising, and aligns with the later VAE-latent PluGeN stage.
+
+The DiT code should still preserve a pixel-space fallback interface. Pixel-space DiT remains useful if VAE reconstruction quality is insufficient or if the VAE latent grid is too small for meaningful SAE token-level analysis.
+
+For `64x64` images and an 8x VAE downsampling factor, the latent grid is expected to be `8x8`. The first latent DiT baseline can use patch size 1 over this latent grid. If this is too coarse for SAE interpretation, later experiments can increase image size, reduce effective downsampling, or switch to pixel-space DiT.
 
 Expected artifacts:
 
 - DiT checkpoint
 - generated sample grid
 - activation extraction script or hook utilities
+- resolved config / args for the run
 
 ---
 
@@ -654,7 +673,7 @@ Do not over-optimize PluGeN before VAE, DiT, and SAE are working.
 Before writing major code, inspect:
 
 ```text
-~/Code/calliffusion_project
+~/Code/calligraphy_project
 ~/Code/transfusion
 ```
 
@@ -668,8 +687,16 @@ Extract useful patterns for:
 - training loop style
 - checkpointing
 - sample visualization
+- sbatch launch style
 
 The new repository should feel similar enough that the user can debug it using habits from those projects.
 
 Avoid assuming a fixed CSV schema before inspecting the reference projects or the actual CSV. Use configurable column names where possible.
 
+Current inspected CSV schema from `calligraphy_project/dataset/train_260402.csv`:
+
+```text
+path,font,char,code,label,part1,part2,author,author_code,new_text
+```
+
+Path handling should normalize Windows-style backslashes because the validation CSV may contain paths like `char_process\七字\七字 楷书 颜真卿.jpg`.

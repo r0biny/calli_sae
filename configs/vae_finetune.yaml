@@ -1,0 +1,46 @@
+# Default VAE finetuning config. Server-specific paths can be overridden in sbatch.
+
+dataset_root: ~/Code/calligraphy_project
+train_csv:
+val_csv:
+image_column: path
+image_size: 64
+center_crop: true
+
+pretrained_model_name_or_path: stabilityai/sd-vae-ft-mse
+pretrained_subfolder:
+
+output_root: ~/Code/calli_sae_results
+run_name:
+
+epochs: 50
+max_steps:
+train_batch_size: 32
+val_batch_size: 8
+learning_rate: 1.0e-5
+weight_decay: 1.0e-6
+gradient_accumulation_steps: 1
+max_grad_norm: 1.0
+mixed_precision: bf16
+num_workers: 8
+seed: 42
+
+recon_loss: l1
+kl_weight: 1.0e-6
+sample_latents: true
+
+sample_every: 1000
+sample_count: 8
+validation_loss_every: 1000
+validation_loss_batches: 0
+checkpoint_every: 5000
+resume_checkpoint:
+
+cache_latents_after_training: false
+latent_cache_batch_size: 128
+
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_eps: 1.0e-8
+allow_tf32: true
+
